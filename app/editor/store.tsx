@@ -25,7 +25,12 @@ import {
   insertSibling,
   updateNode,
 } from "./tree-ops";
-import type { EditorDocument, EditorNode, NodeId } from "./types";
+import type {
+  EditorDocument,
+  EditorNode,
+  EventBinding,
+  NodeId,
+} from "./types";
 import { isElement } from "./types";
 
 export type Viewport = "desktop" | "mobile";
@@ -60,6 +65,7 @@ type Action =
   | { type: "delete_node"; id: NodeId }
   | { type: "duplicate_node"; id: NodeId }
   | { type: "wrap_text"; id: NodeId; text: string }
+  | { type: "set_events"; id: NodeId; events: EventBinding[] }
   | { type: "toggle_expanded"; id: NodeId }
   | { type: "expand"; id: NodeId };
 
@@ -247,6 +253,14 @@ function reducer(state: State, action: Action): State {
       });
       return withActiveDoc(state, doc);
     }
+    case "set_events": {
+      // The editor UI owns all the nested-mutation logic for action trees and
+      // dispatches a fully-replaced array. We just store it.
+      const doc = updateNode(state.doc, action.id, (n) =>
+        isElement(n) ? { ...n, events: action.events } : n
+      );
+      return withActiveDoc(state, doc);
+    }
     case "toggle_expanded": {
       return {
         ...state,
@@ -284,6 +298,7 @@ type EditorContextValue = {
   deleteNode: (id: NodeId) => void;
   duplicateNode: (id: NodeId) => void;
   setInnerText: (id: NodeId, text: string) => void;
+  setEvents: (id: NodeId, events: EventBinding[]) => void;
   toggleExpanded: (id: NodeId) => void;
   expand: (id: NodeId) => void;
 };
@@ -325,6 +340,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       deleteNode: (id) => dispatch({ type: "delete_node", id }),
       duplicateNode: (id) => dispatch({ type: "duplicate_node", id }),
       setInnerText: (id, text) => dispatch({ type: "wrap_text", id, text }),
+      setEvents: (id, events) => dispatch({ type: "set_events", id, events }),
       toggleExpanded: (id) => dispatch({ type: "toggle_expanded", id }),
       expand: (id) => dispatch({ type: "expand", id }),
     }),

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useEditor } from "../store";
-import type { ElementNode } from "../types";
+import type { EditorNode, ElementNode } from "../types";
 import { isElement } from "../types";
 import { VOID_ELEMENTS } from "../constants";
+import { EventsSection } from "./EventsSection";
 
 function ElementProps({ node }: { node: ElementNode }) {
   const {
@@ -15,8 +16,12 @@ function ElementProps({ node }: { node: ElementNode }) {
     setInnerText,
   } = useEditor();
 
+  // tagDraft / textDraft initialize once on mount. Selecting a different
+  // element causes the parent to render this component with key={node.id},
+  // which remounts and reinitializes — so we don't need setState-in-effect
+  // to track prop changes. (The old effect pattern was cascading on every
+  // keystroke and breaking attribute-value editing under React 19.)
   const [tagDraft, setTagDraft] = useState(node.tag);
-  useEffect(() => setTagDraft(node.tag), [node.id, node.tag]);
 
   // Inline text content (only meaningful for elements with a single text child).
   const onlyTextChild =
@@ -28,9 +33,6 @@ function ElementProps({ node }: { node: ElementNode }) {
   const showTextEditor = onlyTextChild !== null || noChildrenAndNotVoid;
 
   const [textDraft, setTextDraft] = useState(onlyTextChild?.text ?? "");
-  useEffect(() => {
-    setTextDraft(onlyTextChild?.text ?? "");
-  }, [node.id, onlyTextChild?.id, onlyTextChild?.text]);
 
   const className = node.attributes.class ?? "";
   const idAttr = node.attributes.id ?? "";
@@ -143,12 +145,8 @@ function ElementProps({ node }: { node: ElementNode }) {
         </div>
       </Section>
 
-      <Section title="Events" action={<span className="text-[10px] text-zinc-400">coming soon</span>}>
-        <p className="text-zinc-400 text-[10px]">
-          Bind editor actions (e.g. open modal, navigate, submit) to interactive
-          elements. The data model already supports an <code>events</code>{" "}
-          array on each node.
-        </p>
+      <Section title="Events">
+        <EventsSection node={node} />
       </Section>
     </div>
   );
@@ -167,26 +165,59 @@ function AttrRow({
   onValue: (value: string) => void;
   onRemove: () => void;
 }) {
+  // Drafts for both fields — edits stay local until the user clicks Update.
+  // The parent passes `key={attrKey}` on this row, so a successful rename
+  // remounts the row and useState reinitializes from the new prop (no effect
+  // needed — the previous prop-sync-in-effect pattern was tripping React 19's
+  // cascading-render warning and breaking value-input editing on every
+  // keystroke).
   const [keyDraft, setKeyDraft] = useState(attrKey);
-  useEffect(() => setKeyDraft(attrKey), [attrKey]);
+  const [valueDraft, setValueDraft] = useState(attrValue);
+
+  const trimmedKey = keyDraft.trim();
+  const dirty =
+    trimmedKey !== "" &&
+    (trimmedKey !== attrKey || valueDraft !== attrValue);
+
+  const commit = () => {
+    if (!dirty) return;
+    // Write the value first (under the old key) so the rename carries it
+    // forward — rename_attr preserves the existing value.
+    if (valueDraft !== attrValue) onValue(valueDraft);
+    if (trimmedKey !== attrKey) onRename(trimmedKey);
+  };
 
   return (
     <div className="flex items-center gap-1">
       <input
         value={keyDraft}
         onChange={(e) => setKeyDraft(e.target.value)}
-        onBlur={() => {
-          const next = keyDraft.trim();
-          if (next && next !== attrKey) onRename(next);
-          else setKeyDraft(attrKey);
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
         }}
-        className={`${inputClass} w-1/3 font-mono`}
+        className={`${inputBase} w-1/3 min-w-0 font-mono`}
       />
       <input
-        value={attrValue}
-        onChange={(e) => onValue(e.target.value)}
-        className={`${inputClass} flex-1 font-mono`}
+        value={valueDraft}
+        onChange={(e) => setValueDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+        }}
+        className={`${inputBase} flex-1 min-w-0 font-mono`}
       />
+      <button
+        type="button"
+        onClick={commit}
+        disabled={!dirty}
+        className={`px-1 ${
+          dirty
+            ? "text-blue-600 hover:text-blue-800"
+            : "text-zinc-300 dark:text-zinc-700 cursor-default"
+        }`}
+        title={dirty ? "Update" : "No changes"}
+      >
+        ✓
+      </button>
       <button
         type="button"
         className="text-zinc-400 hover:text-red-600 px-1"
@@ -199,8 +230,13 @@ function AttrRow({
   );
 }
 
-const inputClass =
-  "w-full px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 focus:outline-none focus:border-blue-400";
+// Base input styling without a width — width is set per usage. Inputs that sit
+// in a flex row (the AttrRow key/value pair) need to share space via w-1/3 /
+// flex-1, and Tailwind's w-full would otherwise win the cascade and crush the
+// value input to a tiny square.
+const inputBase =
+  "px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 focus:outline-none focus:border-blue-400";
+const inputClass = `${inputBase} w-full`;
 
 function Section({
   title,
@@ -238,15 +274,26 @@ function Field({
 }
 
 export function RightSidebar({ width }: { width: number }) {
-  const { selectedNode, updateText } = useEditor();
+  const { selectedNode, updateText, deleteNode } = useEditor();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   return (
     <aside
       style={{ width }}
       className="shrink-0 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col min-w-0"
     >
-      <div className="px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
-        Properties
+      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
+        <span>Properties</span>
+        {selectedNode && (
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            title="Delete this element"
+            className="h-6 px-2 rounded text-[11px] font-medium border border-zinc-200 dark:border-zinc-800 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 hover:border-red-200 dark:hover:border-red-900"
+          >
+            Delete
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-auto p-3">
         {!selectedNode && (
@@ -254,7 +301,9 @@ export function RightSidebar({ width }: { width: number }) {
             Select an element to edit its properties.
           </div>
         )}
-        {selectedNode && isElement(selectedNode) && <ElementProps node={selectedNode} />}
+        {selectedNode && isElement(selectedNode) && (
+          <ElementProps key={selectedNode.id} node={selectedNode} />
+        )}
         {selectedNode && selectedNode.kind === "text" && (
           <div className="text-xs space-y-2">
             <div className="text-[10px] uppercase tracking-wider text-zinc-500">
@@ -268,6 +317,75 @@ export function RightSidebar({ width }: { width: number }) {
           </div>
         )}
       </div>
+      {confirmingDelete && selectedNode && (
+        <ConfirmDelete
+          summary={describeNodeForConfirm(selectedNode)}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => {
+            deleteNode(selectedNode.id);
+            setConfirmingDelete(false);
+          }}
+        />
+      )}
     </aside>
+  );
+}
+
+function describeNodeForConfirm(node: EditorNode): string {
+  if (node.kind === "text") {
+    const trimmed = node.text.trim();
+    return trimmed
+      ? `text "${trimmed.slice(0, 40)}${trimmed.length > 40 ? "…" : ""}"`
+      : "empty text node";
+  }
+  const id = node.attributes.id ? `#${node.attributes.id}` : "";
+  const cls = node.attributes.class
+    ? "." + node.attributes.class.split(/\s+/).filter(Boolean).slice(0, 2).join(".")
+    : "";
+  return `<${node.tag}${id}${cls}>`;
+}
+
+function ConfirmDelete({
+  summary,
+  onCancel,
+  onConfirm,
+}: {
+  summary: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm bg-white dark:bg-zinc-950 rounded-lg shadow-xl p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="font-semibold text-sm mb-2">Delete element?</h2>
+        <p className="text-xs text-zinc-600 dark:text-zinc-400 mb-4">
+          This will remove <span className="font-mono">{summary}</span> and all
+          of its children. This can&apos;t be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-8 px-3 text-xs font-medium rounded border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            autoFocus
+            className="h-8 px-3 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

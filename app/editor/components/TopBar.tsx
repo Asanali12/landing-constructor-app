@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useEditor, type Viewport } from "../store";
+import type { EditorDocument } from "../types";
 import {
   DEFAULT_DESKTOP_WIDTH_PX,
   DEFAULT_MOBILE_WIDTH_PX,
 } from "../constants";
 import { serializeDocument } from "../serialize";
 import { serializeMerged } from "../merge";
+import { annotateAndCollect, serializeEventsScript } from "../events-runtime";
 import { SNAPSHOT_BOOKMARKLET, SNAPSHOT_SCRIPT } from "../snapshot-script";
 
 const SAMPLE_HTML = `<style>
@@ -141,7 +143,7 @@ export function TopBar() {
       )}
       {exportOpen && (
         <ExportModal
-          activeHtml={serializeDocument(state.doc, { pretty: true })}
+          activeHtml={buildActiveHtml(state.doc)}
           mergedHtml={serializeMerged(state.docs.desktop, state.docs.mobile)}
           activeViewport={state.activeViewport}
           onClose={() => setExportOpen(false)}
@@ -149,6 +151,15 @@ export function TopBar() {
       )}
     </header>
   );
+}
+
+// Active-viewport export. Annotates elements that own bindings with
+// data-lc-events="<id>", serializes the doc, and appends the runtime script.
+function buildActiveHtml(doc: EditorDocument): string {
+  const { nodes, configs } = annotateAndCollect(doc.children);
+  const html = serializeDocument({ ...doc, children: nodes }, { pretty: true });
+  const script = serializeEventsScript(configs);
+  return script ? html + "\n" + script + "\n" : html;
 }
 
 function ViewportPill({

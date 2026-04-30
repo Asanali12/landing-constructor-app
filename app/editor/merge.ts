@@ -15,6 +15,11 @@
 
 import { MOBILE_BREAKPOINT_PX } from "./constants";
 import { prefixCss } from "./css-prefix";
+import {
+  annotateAndCollect,
+  serializeEventsScript,
+  type EventConfig,
+} from "./events-runtime";
 import type { EditorDocument, EditorNode, ElementNode } from "./types";
 import { isElement } from "./types";
 
@@ -48,8 +53,26 @@ export function serializeMerged(
     ...mobileParts.linkNodes,
   ]);
 
-  const desktopBodyHtml = serializeChildrenToHtml(desktopParts.body);
-  const mobileBodyHtml = serializeChildrenToHtml(mobileParts.body);
+  // Annotate elements with bindings so the runtime script can find them.
+  // Scope each viewport's selectors so a desktop binding doesn't fire on a
+  // mobile element with the same id (ids are unique per session, but the
+  // prefix also clarifies intent).
+  const desktopAnnotated = annotateAndCollect(
+    desktopParts.body,
+    `.${DESKTOP_SCOPE} `
+  );
+  const mobileAnnotated = annotateAndCollect(
+    mobileParts.body,
+    `.${MOBILE_SCOPE} `
+  );
+  const allConfigs: EventConfig[] = [
+    ...desktopAnnotated.configs,
+    ...mobileAnnotated.configs,
+  ];
+
+  const desktopBodyHtml = serializeChildrenToHtml(desktopAnnotated.nodes);
+  const mobileBodyHtml = serializeChildrenToHtml(mobileAnnotated.nodes);
+  const eventsScript = serializeEventsScript(allConfigs);
 
   const switcherCss = `
 .${DESKTOP_SCOPE} { display: block; }
@@ -89,6 +112,7 @@ export function serializeMerged(
   lines.push(`    <div class="${MOBILE_SCOPE}">`);
   lines.push(indent(mobileBodyHtml, 6));
   lines.push("    </div>");
+  if (eventsScript) lines.push("    " + eventsScript);
   lines.push("  </body>");
   lines.push("</html>");
   lines.push("");

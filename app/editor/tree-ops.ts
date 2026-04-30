@@ -1,13 +1,46 @@
 import { VOID_ELEMENTS, PALETTE, type PaletteItem } from "./constants";
 import { makeId } from "./id";
 import type {
+  Action,
   EditorDocument,
   EditorNode,
   ElementNode,
+  EventBinding,
   NodeId,
   TextNode,
 } from "./types";
 import { isElement } from "./types";
+
+// Deep-clone an action tree with fresh ids at every level. Necessary so that
+// duplicating an element doesn't leave the new node's actions sharing array
+// references with the original.
+function cloneActions(actions: Action[]): Action[] {
+  return actions.map((a) => {
+    const id = makeId("act");
+    switch (a.kind) {
+      case "ifElse":
+        return {
+          ...a,
+          id,
+          then: cloneActions(a.then),
+          else: cloneActions(a.else),
+        };
+      case "setTimeout":
+        return { ...a, id, actions: cloneActions(a.actions) };
+      default:
+        return { ...a, id };
+    }
+  });
+}
+
+function cloneEvents(events: EventBinding[] | undefined): EventBinding[] | undefined {
+  if (!events) return undefined;
+  return events.map((b) => ({
+    id: makeId("evt"),
+    event: b.event,
+    actions: cloneActions(b.actions),
+  }));
+}
 
 export function findNode(
   doc: EditorDocument,
@@ -99,7 +132,7 @@ function cloneNode(node: EditorNode): EditorNode {
     tag: node.tag,
     attributes: { ...node.attributes },
     children: node.children.map(cloneNode),
-    events: node.events ? node.events.map((e) => ({ ...e })) : undefined,
+    events: cloneEvents(node.events),
   };
 }
 

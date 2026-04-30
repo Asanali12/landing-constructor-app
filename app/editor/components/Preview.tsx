@@ -6,13 +6,6 @@ import { useEditor } from "../store";
 import { renderNode } from "../react-render";
 import { scopeClassFor, scopeStyles, splitHeadAndBody } from "../merge";
 
-const VIEWPORTS: Array<{ label: string; width: number }> = [
-  { label: "Desktop", width: 1280 },
-  { label: "Laptop", width: 1024 },
-  { label: "Tablet", width: 768 },
-  { label: "Mobile", width: 390 },
-];
-
 const IFRAME_BASE_CSS = `
   html, body { margin: 0; padding: 0; }
   body { background: white; }
@@ -29,7 +22,7 @@ const IFRAME_BASE_CSS = `
 `;
 
 export function Preview() {
-  const { state, select, setViewportWidth } = useEditor();
+  const { state, select } = useEditor();
   const viewportWidth = state.viewportWidth;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [iframeBody, setIframeBody] = useState<HTMLElement | null>(null);
@@ -90,22 +83,8 @@ export function Preview() {
 
   return (
     <div className="flex flex-col flex-1 min-w-0 bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
+      <div className="flex items-center px-4 py-2 border-b border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500">
         <span>Preview</span>
-        <div className="flex items-center gap-3">
-          <select
-            value={viewportWidth}
-            onChange={(e) => setViewportWidth(Number(e.target.value))}
-            className="bg-transparent text-xs border border-zinc-200 dark:border-zinc-800 rounded px-1.5 py-1 focus:outline-none"
-          >
-            {VIEWPORTS.map((v) => (
-              <option key={v.width} value={v.width}>
-                {v.label} ({v.width}px)
-              </option>
-            ))}
-          </select>
-          <span className="text-zinc-400">click to select</span>
-        </div>
       </div>
       <div
         className="flex-1 min-h-0 overflow-auto p-6"
