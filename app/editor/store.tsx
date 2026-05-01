@@ -54,6 +54,9 @@ type State = {
 type Action =
   | { type: "load_html"; html: string; viewport?: Viewport }
   | { type: "set_document"; doc: EditorDocument; viewport?: Viewport }
+  // Like set_document but preserves selection / expansion. Used by AI tools
+  // that splice the tree without changing what the user is currently editing.
+  | { type: "apply_doc"; doc: EditorDocument; viewport?: Viewport }
   | { type: "set_viewport_width"; width: number }
   | { type: "select"; id: NodeId | null }
   | { type: "insert_palette"; item: PaletteItem }
@@ -124,6 +127,20 @@ function reducer(state: State, action: Action): State {
           docs: { ...state.docs, [target]: action.doc },
           selectedId: null,
           expanded: {},
+        };
+      }
+      return {
+        ...state,
+        docs: { ...state.docs, [target]: action.doc },
+      };
+    }
+    case "apply_doc": {
+      const target = action.viewport ?? state.activeViewport;
+      if (target === state.activeViewport) {
+        return {
+          ...state,
+          doc: action.doc,
+          docs: { ...state.docs, [target]: action.doc },
         };
       }
       return {
@@ -287,6 +304,7 @@ type EditorContextValue = {
   selectedParent: ReturnType<typeof findParent>;
   loadHtml: (html: string, viewport?: Viewport) => void;
   setDocument: (doc: EditorDocument, viewport?: Viewport) => void;
+  applyDoc: (doc: EditorDocument, viewport?: Viewport) => void;
   setViewportWidth: (width: number) => void;
   select: (id: NodeId | null) => void;
   insertFromPalette: (item: PaletteItem) => void;
@@ -327,6 +345,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "load_html", html, viewport }),
       setDocument: (doc, viewport) =>
         dispatch({ type: "set_document", doc, viewport }),
+      applyDoc: (doc, viewport) => dispatch({ type: "apply_doc", doc, viewport }),
       setViewportWidth: (width) =>
         dispatch({ type: "set_viewport_width", width }),
       select: (id) => dispatch({ type: "select", id }),

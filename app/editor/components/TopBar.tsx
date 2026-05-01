@@ -11,6 +11,8 @@ import { serializeDocument } from "../serialize";
 import { serializeMerged } from "../merge";
 import { annotateAndCollect, serializeEventsScript } from "../events-runtime";
 import { SNAPSHOT_BOOKMARKLET, SNAPSHOT_SCRIPT } from "../snapshot-script";
+import { parseHtml } from "../parse";
+import { optimizeDocument, type OptimizationStats } from "../optimize";
 
 const SAMPLE_HTML = `<style>
   .hero {
@@ -79,7 +81,7 @@ const SAMPLE_HTML = `<style>
 </section>`;
 
 export function TopBar() {
-  const { state, loadHtml, setViewportWidth } = useEditor();
+  const { state, loadHtml, setDocument, setViewportWidth } = useEditor();
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -135,10 +137,7 @@ export function TopBar() {
         <ImportModal
           activeViewport={state.activeViewport}
           onClose={() => setImportOpen(false)}
-          onSubmit={(html, viewport) => {
-            loadHtml(html, viewport);
-            setImportOpen(false);
-          }}
+          onImport={(doc, viewport) => setDocument(doc, viewport)}
         />
       )}
       {exportOpen && (
@@ -206,15 +205,41 @@ function ViewportPill({
 function ImportModal({
   activeViewport,
   onClose,
-  onSubmit,
+  onImport,
 }: {
   activeViewport: Viewport;
   onClose: () => void;
-  onSubmit: (html: string, viewport: Viewport) => void;
+  onImport: (doc: EditorDocument, viewport: Viewport) => void;
 }) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState<Viewport>(activeViewport);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
+  // After successful import we swap the modal body to a stats view so the
+  // user can see how much the safe-pass optimizer trimmed.
+  const [result, setResult] = useState<
+    { stats: OptimizationStats; viewport: Viewport } | null
+  >(null);
+
+  const runImport = () => {
+    const parsed = parseHtml(text);
+    const { doc, stats } = optimizeDocument(parsed);
+    onImport(doc, target);
+    setResult({ stats, viewport: target });
+  };
+
+  if (result) {
+    return (
+      <Modal onClose={onClose} title="Imported & optimized">
+        <ImportStats stats={result.stats} viewport={result.viewport} />
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" className={btnPrimary} onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal onClose={onClose} title="Import HTML">
       <div className="flex items-center gap-2 mb-3 text-xs">
@@ -241,7 +266,8 @@ function ImportModal({
       <p className="text-xs text-zinc-500 mb-2">
         Paste any HTML below. Scripts, inline event handlers, and{" "}
         <code>javascript:</code> URLs are stripped. The selected viewport&apos;s
-        document is replaced.
+        document is replaced. A safe optimizer pass also runs on import —
+        you&apos;ll see the savings after.
       </p>
       <textarea
         value={text}
@@ -271,12 +297,77 @@ function ImportModal({
           type="button"
           className={btnPrimary}
           disabled={!text.trim()}
-          onClick={() => onSubmit(text, target)}
+          onClick={runImport}
         >
           Import into {target}
         </button>
       </div>
     </Modal>
+  );
+}
+
+function ImportStats({
+  stats,
+  viewport,
+}: {
+  stats: OptimizationStats;
+  viewport: Viewport;
+}) {
+  const linesSaved = stats.beforeLines - stats.afterLines;
+  const charsSaved = stats.beforeChars - stats.afterChars;
+  const linesPct = stats.beforeLines
+    ? Math.round((linesSaved / stats.beforeLines) * 100)
+    : 0;
+  const charsPct = stats.beforeChars
+    ? Math.round((charsSaved / stats.beforeChars) * 100)
+    : 0;
+  const fmt = (n: number) => n.toLocaleString();
+  return (
+    <div className="text-xs space-y-3">
+      <p className="text-zinc-600 dark:text-zinc-300">
+        Imported into <strong>{viewport}</strong>.
+      </p>
+      <div className="grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1 font-mono text-[11px] items-baseline">
+        <div className="text-zinc-500">Lines</div>
+        <div className="text-right tabular-nums">
+          {fmt(stats.beforeLines)} → {fmt(stats.afterLines)}
+        </div>
+        <div
+          className={`text-right tabular-nums ${
+            linesSaved > 0 ? "text-green-600" : "text-zinc-500"
+          }`}
+        >
+          {linesSaved > 0 ? `−${fmt(linesSaved)} (${linesPct}%)` : "no change"}
+        </div>
+
+        <div className="text-zinc-500">Characters</div>
+        <div className="text-right tabular-nums">
+          {fmt(stats.beforeChars)} → {fmt(stats.afterChars)}
+        </div>
+        <div
+          className={`text-right tabular-nums ${
+            charsSaved > 0 ? "text-green-600" : "text-zinc-500"
+          }`}
+        >
+          {charsSaved > 0 ? `−${fmt(charsSaved)} (${charsPct}%)` : "no change"}
+        </div>
+      </div>
+      <ul className="text-[11px] text-zinc-600 dark:text-zinc-400 space-y-0.5 list-disc list-inside">
+        <li>
+          {fmt(stats.duplicateStyleBlocksRemoved)} duplicate{" "}
+          <code>&lt;style&gt;</code> block
+          {stats.duplicateStyleBlocksRemoved === 1 ? "" : "s"} removed
+        </li>
+        <li>
+          {fmt(stats.attrsStripped)} framework attribute
+          {stats.attrsStripped === 1 ? "" : "s"} stripped
+        </li>
+        <li>
+          {fmt(stats.emptyElementsRemoved)} empty element
+          {stats.emptyElementsRemoved === 1 ? "" : "s"} removed
+        </li>
+      </ul>
+    </div>
   );
 }
 
