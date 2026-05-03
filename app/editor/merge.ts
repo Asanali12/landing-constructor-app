@@ -20,6 +20,7 @@ import {
   serializeEventsScript,
   type EventConfig,
 } from "./events-runtime";
+import { serializeComponentRuntimeScript } from "../host-runtime/component-runtime";
 import type { EditorDocument, EditorNode, ElementNode } from "./types";
 import { isElement } from "./types";
 
@@ -73,6 +74,7 @@ export function serializeMerged(
   const desktopBodyHtml = serializeChildrenToHtml(desktopAnnotated.nodes);
   const mobileBodyHtml = serializeChildrenToHtml(mobileAnnotated.nodes);
   const eventsScript = serializeEventsScript(allConfigs);
+  const componentScript = serializeComponentRuntimeScript();
 
   const switcherCss = `
 .${DESKTOP_SCOPE} { display: block; }
@@ -113,6 +115,7 @@ export function serializeMerged(
   lines.push(indent(mobileBodyHtml, 6));
   lines.push("    </div>");
   if (eventsScript) lines.push("    " + eventsScript);
+  lines.push("    " + componentScript);
   lines.push("  </body>");
   lines.push("</html>");
   lines.push("");

@@ -1,30 +1,71 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { eventsForTag } from "../events-catalog";
+import {
+  applyPreset,
+  loadPresets,
+  presetFromBinding,
+  savePresets,
+  type EventPreset,
+} from "../event-presets";
 import { makeId } from "../id";
 import { useEditor } from "../store";
 import type { ElementNode, EventBinding } from "../types";
 import { ActionList } from "./ActionEditor";
+import { EventPresetsModal } from "./EventPresetsModal";
 
 const inputClass =
   "w-full px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 focus:outline-none focus:border-blue-400";
+
+// Sentinel value emitted by the "+ Add…" dropdown to open the manage
+// modal. Distinct from any real event name or preset id.
+const MANAGE_SENTINEL = "__manage_presets__";
+const PRESET_PREFIX = "preset:";
 
 export function EventsSection({ node }: { node: ElementNode }) {
   const { setEvents } = useEditor();
   const events = node.events ?? [];
   const eventOptions = eventsForTag(node.tag);
 
+  // Hydrate presets from localStorage on mount; re-read after the modal
+  // closes so newly-added presets show up in the dropdown immediately.
+  const [presets, setPresets] = useState<EventPreset[]>([]);
+  useEffect(() => {
+    setPresets(loadPresets());
+  }, []);
+  const refreshPresets = () => setPresets(loadPresets());
+
+  const [modalOpen, setModalOpen] = useState(false);
+
   const replace = (next: EventBinding[]) => setEvents(node.id, next);
 
-  const addBinding = (eventName: string) => {
-    if (!eventName) return;
+  const addRawEvent = (eventName: string) => {
     const binding: EventBinding = {
       id: makeId("evt"),
       event: eventName,
       actions: [],
     };
     replace([...events, binding]);
+  };
+
+  const addFromPreset = (presetId: string) => {
+    const preset = presets.find((p) => p.id === presetId);
+    if (!preset) return;
+    replace([...events, applyPreset(preset)]);
+  };
+
+  const handleAddSelection = (value: string) => {
+    if (!value) return;
+    if (value === MANAGE_SENTINEL) {
+      setModalOpen(true);
+      return;
+    }
+    if (value.startsWith(PRESET_PREFIX)) {
+      addFromPreset(value.slice(PRESET_PREFIX.length));
+      return;
+    }
+    addRawEvent(value);
   };
 
   const updateBinding = (i: number, next: EventBinding) => {
@@ -35,6 +76,14 @@ export function EventsSection({ node }: { node: ElementNode }) {
 
   const removeBinding = (i: number) => {
     replace(events.filter((_, idx) => idx !== i));
+  };
+
+  const saveAsPreset = (binding: EventBinding) => {
+    const name = window.prompt("Preset name?", `on ${binding.event}`);
+    if (!name) return;
+    const next = [...loadPresets(), presetFromBinding(binding, name.trim())];
+    savePresets(next);
+    setPresets(next);
   };
 
   return (
@@ -57,37 +106,67 @@ export function EventsSection({ node }: { node: ElementNode }) {
             tagEvents={eventOptions}
             onChange={(next) => updateBinding(i, next)}
             onDelete={() => removeBinding(i)}
+            onSaveAsPreset={() => saveAsPreset(b)}
           />
         ))}
       </div>
 
-      <AddBinding events={eventOptions} onAdd={addBinding} />
+      <AddBinding
+        events={eventOptions}
+        presets={presets}
+        onSelect={handleAddSelection}
+      />
+
+      {modalOpen && (
+        <EventPresetsModal
+          onClose={() => {
+            setModalOpen(false);
+            refreshPresets();
+          }}
+          onChange={refreshPresets}
+        />
+      )}
     </div>
   );
 }
 
 function AddBinding({
   events,
-  onAdd,
+  presets,
+  onSelect,
 }: {
   events: string[];
-  onAdd: (name: string) => void;
+  presets: EventPreset[];
+  onSelect: (value: string) => void;
 }) {
   return (
     <select
       value=""
       onChange={(e) => {
-        if (e.target.value) onAdd(e.target.value);
+        const v = e.target.value;
         e.target.value = "";
+        onSelect(v);
       }}
       className={inputClass + " text-zinc-500"}
     >
       <option value="">+ Add event…</option>
-      {events.map((ev) => (
-        <option key={ev} value={ev}>
-          {ev}
-        </option>
-      ))}
+      <optgroup label="Events">
+        {events.map((ev) => (
+          <option key={ev} value={ev}>
+            {ev}
+          </option>
+        ))}
+      </optgroup>
+      {presets.length > 0 && (
+        <optgroup label="Presets">
+          {presets.map((p) => (
+            <option key={p.id} value={`${PRESET_PREFIX}${p.id}`}>
+              {p.name} (on {p.event})
+            </option>
+          ))}
+        </optgroup>
+      )}
+      <option value={MANAGE_SENTINEL}>⚙ Manage presets…</option>
     </select>
   );
 }
@@ -97,11 +176,13 @@ function BindingEditor({
   tagEvents,
   onChange,
   onDelete,
+  onSaveAsPreset,
 }: {
   binding: EventBinding;
   tagEvents: string[];
   onChange: (next: EventBinding) => void;
   onDelete: () => void;
+  onSaveAsPreset: () => void;
 }) {
   const [open, setOpen] = useState(true);
 
@@ -141,6 +222,14 @@ function BindingEditor({
           {binding.actions.length}
           {binding.actions.length === 1 ? " action" : " actions"}
         </span>
+        <button
+          type="button"
+          onClick={onSaveAsPreset}
+          title="Save this binding as a preset"
+          className="text-zinc-400 hover:text-blue-600 px-1"
+        >
+          ☆
+        </button>
         <button
           type="button"
           onClick={onDelete}

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useEditor } from "../store";
 import { getAncestors } from "../tree-ops";
 import type { EditorNode } from "../types";
+import { isComponentRoot, isLocked } from "../components-kit/instance";
 
 function nodeLabel(node: EditorNode): string {
   if (node.kind === "text") {
@@ -20,9 +21,15 @@ function nodeLabel(node: EditorNode): string {
 function TreeRow({
   node,
   depth,
+  // True when an ancestor is a locked component root. Descendants of a locked
+  // component shouldn't be deletable / duplicable from the layers tree —
+  // marketing users would otherwise be able to remove a prop slot via this
+  // UI even though clicks in the canvas redirect them to the component root.
+  behindLock,
 }: {
   node: EditorNode;
   depth: number;
+  behindLock: boolean;
 }) {
   const {
     state,
@@ -35,6 +42,12 @@ function TreeRow({
   const hasChildren = isElement && node.children.length > 0;
   const expanded = state.expanded[node.id] ?? depth < 1;
   const isSelected = state.selectedId === node.id;
+  // Children of a locked component inherit the lock; the component root
+  // itself is editable (its row's buttons remain) so the whole component can
+  // still be deleted as a unit.
+  const childrenBehindLock =
+    behindLock ||
+    (node.kind === "element" && isComponentRoot(node) && isLocked(node));
 
   return (
     <div>
@@ -76,33 +89,49 @@ function TreeRow({
             <span className="text-zinc-500 italic">{nodeLabel(node)}</span>
           )}
         </span>
-        <button
-          type="button"
-          className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700 px-1"
-          title="Duplicate"
-          onClick={(e) => {
-            e.stopPropagation();
-            duplicateNode(node.id);
-          }}
-        >
-          ⎘
-        </button>
-        <button
-          type="button"
-          className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-600 px-1"
-          title="Delete"
-          onClick={(e) => {
-            e.stopPropagation();
-            deleteNode(node.id);
-          }}
-        >
-          ✕
-        </button>
+        {behindLock ? (
+          <span
+            className="text-zinc-400 px-1"
+            title="Inside a locked component. Unlock the component (right sidebar) to delete or duplicate this element."
+          >
+            🔒
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-zinc-700 px-1"
+              title="Duplicate"
+              onClick={(e) => {
+                e.stopPropagation();
+                duplicateNode(node.id);
+              }}
+            >
+              ⎘
+            </button>
+            <button
+              type="button"
+              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-600 px-1"
+              title="Delete"
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteNode(node.id);
+              }}
+            >
+              ✕
+            </button>
+          </>
+        )}
       </div>
       {isElement && expanded && hasChildren && (
         <div>
           {node.children.map((child) => (
-            <TreeRow key={child.id} node={child} depth={depth + 1} />
+            <TreeRow
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              behindLock={childrenBehindLock}
+            />
           ))}
         </div>
       )}
@@ -133,7 +162,7 @@ export function LayersTree() {
   return (
     <div className="text-xs">
       {state.doc.children.map((node) => (
-        <TreeRow key={node.id} node={node} depth={0} />
+        <TreeRow key={node.id} node={node} depth={0} behindLock={false} />
       ))}
     </div>
   );

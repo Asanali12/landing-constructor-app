@@ -4,7 +4,8 @@
 // embedded in the export uses the config to attach addEventListener handlers
 // at DOMContentLoaded.
 
-import type { Action, EditorNode, ElementNode } from "./types";
+import { makeId } from "./id";
+import type { Action, EditorNode, ElementNode, EventBinding } from "./types";
 import { isElement } from "./types";
 
 const DATA_ATTR = "data-lc-events";
@@ -24,8 +25,13 @@ export type AnnotateResult = {
 };
 
 // Walk a node array and:
-//   1. Collect every element that has at least one binding into `configs`.
-//   2. Return new nodes where those elements carry data-lc-events="<id>".
+//   1. Synthesize click bindings for any `<a href>` that doesn't already
+//      carry one — `href="#some-id"` becomes a smooth scrollTo action,
+//      anything else becomes a goToLink. `target="_blank"` flips newTab.
+//      Synth bindings are appended last so user-defined analytics /
+//      writeUserData run before the navigate happens.
+//   2. Collect every element that has at least one binding into `configs`.
+//   3. Return new nodes where those elements carry data-lc-events="<id>".
 // Pass `selectorPrefix` to scope the runtime selector (e.g. ".lc-view-desktop ")
 // so merged exports don't cross-fire desktop bindings into mobile DOM.
 export function annotateAndCollect(
@@ -38,19 +44,21 @@ export function annotateAndCollect(
     return input.map((n) => {
       if (!isElement(n)) return n;
       const newChildren = walk(n.children);
-      const hasBindings = (n.events?.length ?? 0) > 0;
+      const events = withSynthesizedLinkBindings(n);
+      const hasBindings = events.length > 0;
       if (!hasBindings) {
         return newChildren === n.children ? n : { ...n, children: newChildren };
       }
       configs.push({
         selector: `${selectorPrefix}[${DATA_ATTR}="${n.id}"]`,
-        bindings: (n.events ?? []).map((b) => ({
+        bindings: events.map((b) => ({
           event: b.event,
           actions: b.actions,
         })),
       });
       const next: ElementNode = {
         ...n,
+        events,
         children: newChildren,
         attributes: { ...n.attributes, [DATA_ATTR]: n.id },
       };
@@ -59,6 +67,45 @@ export function annotateAndCollect(
   }
 
   return { nodes: walk(nodes), configs };
+}
+
+// Append a click → goToLink/scrollTo binding to `<a href>` elements that
+// don't already author one. Skips empty hrefs and `javascript:` URLs
+// (the parser already strips those, but double-check). If the user has
+// an explicit click binding, the synth one runs after it so analytics
+// fires before navigation.
+function withSynthesizedLinkBindings(node: ElementNode): EventBinding[] {
+  const existing = node.events ?? [];
+  if (node.tag !== "a") return existing;
+
+  const href = node.attributes.href;
+  if (!href || /^\s*javascript:/i.test(href)) return existing;
+
+  const isIdHref = href.startsWith("#") && href.length > 1;
+  const newTab =
+    !isIdHref && (node.attributes.target ?? "").toLowerCase() === "_blank";
+
+  const action: Action = isIdHref
+    ? {
+        id: makeId("act"),
+        kind: "scrollTo",
+        selector: href,
+        behavior: "smooth",
+      }
+    : {
+        id: makeId("act"),
+        kind: "goToLink",
+        url: href,
+        newTab,
+      };
+
+  const synth: EventBinding = {
+    id: makeId("evt"),
+    event: "click",
+    actions: [action],
+  };
+
+  return [...existing, synth];
 }
 
 // Self-contained runtime. Reads window.__lcEventsConfig and wires handlers.

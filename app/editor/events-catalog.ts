@@ -2,9 +2,15 @@
 // than exhaustive — the goal is "what events does this element actually fire
 // in normal use", not the full DOM event surface. Tags not listed get the
 // COMMON_EVENTS list.
+//
+// `view` is a synthesized lifecycle trigger: the host runtime fires it
+// once when the element first scrolls into view (IntersectionObserver-
+// backed). It's not a DOM event, but exposing it in the same dropdown
+// keeps authoring uniform.
 
 const COMMON_EVENTS = [
   "click",
+  "view",
   "dblclick",
   "contextmenu",
   "mouseenter",

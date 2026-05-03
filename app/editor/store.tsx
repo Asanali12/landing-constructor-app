@@ -25,6 +25,7 @@ import {
   insertSibling,
   updateNode,
 } from "./tree-ops";
+import { findLockedComponentAncestor } from "./components-kit/instance";
 import type {
   EditorDocument,
   EditorNode,
@@ -60,6 +61,9 @@ type Action =
   | { type: "set_viewport_width"; width: number }
   | { type: "select"; id: NodeId | null }
   | { type: "insert_palette"; item: PaletteItem }
+  // Like insert_palette but with a pre-built node — used by the components
+  // kit, which parses an HTML template into a node before insertion.
+  | { type: "insert_node"; node: EditorNode }
   | { type: "update_text"; id: NodeId; text: string }
   | { type: "update_tag"; id: NodeId; tag: string }
   | { type: "set_attr"; id: NodeId; key: string; value: string }
@@ -94,6 +98,31 @@ function withActiveDoc(state: State, doc: EditorDocument): State {
     ...state,
     doc,
     docs: { ...state.docs, [state.activeViewport]: doc },
+  };
+}
+
+// Shared placement logic for insert_palette and insert_node: drop newNode in
+// a location that respects the current selection — as a child if the
+// selection can hold children, as a sibling otherwise, at root if nothing
+// is selected. Auto-expands the parent in the layers tree.
+function placeNewNode(state: State, newNode: EditorNode): State {
+  const sel = state.selectedId ? findNode(state.doc, state.selectedId) : null;
+  let nextDoc: EditorDocument;
+  let nextExpanded = state.expanded;
+
+  if (sel && isElement(sel) && !VOID_ELEMENTS.has(sel.tag)) {
+    nextDoc = insertChildLast(state.doc, sel.id, newNode);
+    nextExpanded = { ...state.expanded, [sel.id]: true };
+  } else if (sel) {
+    nextDoc = insertSibling(state.doc, sel.id, newNode, "after");
+  } else {
+    nextDoc = insertChildLast(state.doc, null, newNode);
+  }
+
+  return {
+    ...withActiveDoc(state, nextDoc),
+    selectedId: newNode.id,
+    expanded: nextExpanded,
   };
 }
 
@@ -166,30 +195,19 @@ function reducer(state: State, action: Action): State {
       };
     }
     case "select": {
-      return { ...state, selectedId: action.id };
+      if (!action.id) return { ...state, selectedId: null };
+      // If the click landed inside a locked component, redirect selection
+      // to the component root instead so marketing users can't accidentally
+      // mess with internal structure.
+      const lockedAncestor = findLockedComponentAncestor(state.doc, action.id);
+      return { ...state, selectedId: lockedAncestor ?? action.id };
     }
     case "insert_palette": {
       const newNode = buildElementFromPalette(action.item);
-      const sel = state.selectedId ? findNode(state.doc, state.selectedId) : null;
-
-      let nextDoc: EditorDocument;
-      let nextExpanded = state.expanded;
-
-      if (sel && isElement(sel) && !VOID_ELEMENTS.has(sel.tag)) {
-        nextDoc = insertChildLast(state.doc, sel.id, newNode);
-        nextExpanded = { ...state.expanded, [sel.id]: true };
-      } else if (sel) {
-        // Selected node is a text node or void — insert as next sibling.
-        nextDoc = insertSibling(state.doc, sel.id, newNode, "after");
-      } else {
-        nextDoc = insertChildLast(state.doc, null, newNode);
-      }
-
-      return {
-        ...withActiveDoc(state, nextDoc),
-        selectedId: newNode.id,
-        expanded: nextExpanded,
-      };
+      return placeNewNode(state, newNode);
+    }
+    case "insert_node": {
+      return placeNewNode(state, action.node);
     }
     case "update_text": {
       const doc = updateNode(state.doc, action.id, (n) =>
@@ -308,6 +326,7 @@ type EditorContextValue = {
   setViewportWidth: (width: number) => void;
   select: (id: NodeId | null) => void;
   insertFromPalette: (item: PaletteItem) => void;
+  insertNode: (node: EditorNode) => void;
   updateText: (id: NodeId, text: string) => void;
   updateTag: (id: NodeId, tag: string) => void;
   setAttr: (id: NodeId, key: string, value: string) => void;
@@ -350,6 +369,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "set_viewport_width", width }),
       select: (id) => dispatch({ type: "select", id }),
       insertFromPalette: (item) => dispatch({ type: "insert_palette", item }),
+      insertNode: (node) => dispatch({ type: "insert_node", node }),
       updateText: (id, text) => dispatch({ type: "update_text", id, text }),
       updateTag: (id, tag) => dispatch({ type: "update_tag", id, tag }),
       setAttr: (id, key, value) => dispatch({ type: "set_attr", id, key, value }),

@@ -4,9 +4,17 @@ import { PALETTE, PALETTE_CATEGORIES, VOID_ELEMENTS } from "../constants";
 import { useEditor } from "../store";
 import { isElement } from "../types";
 import { findNode } from "../tree-ops";
+import { COMPONENT_REGISTRY } from "../components-kit/registry";
+import { buildInstance } from "../components-kit/instance";
+import type { ComponentDef } from "../components-kit/types";
 
 export function ElementPalette() {
-  const { state, insertFromPalette } = useEditor();
+  const { state, insertFromPalette, insertNode } = useEditor();
+
+  const insertComponent = (def: ComponentDef) => {
+    const node = buildInstance(def);
+    if (node) insertNode(node);
+  };
 
   const selected = state.selectedId
     ? findNode(state.doc, state.selectedId)
@@ -31,6 +39,27 @@ export function ElementPalette() {
       <div className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
         <div className="text-zinc-500">Insert into</div>
         <div className="font-medium truncate">{target}</div>
+      </div>
+
+      <div>
+        <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-zinc-400 bg-zinc-50/50 dark:bg-zinc-900/50">
+          Components Kit
+        </div>
+        <div className="grid grid-cols-1 gap-1 p-2">
+          {COMPONENT_REGISTRY.map((def) => (
+            <button
+              key={def.id}
+              type="button"
+              onClick={() => insertComponent(def)}
+              className="text-left px-2 py-2 rounded border border-zinc-200 dark:border-zinc-800 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+            >
+              <div className="font-medium">{def.label}</div>
+              <div className="text-zinc-400 text-[10px] mt-0.5 truncate">
+                {def.description}
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
 
       {PALETTE_CATEGORIES.map((cat) => (

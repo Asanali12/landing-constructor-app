@@ -6,6 +6,23 @@ import type { EditorNode, ElementNode } from "../types";
 import { isElement } from "../types";
 import { VOID_ELEMENTS } from "../constants";
 import { EventsSection } from "./EventsSection";
+import { ComponentProps } from "./ComponentProps";
+import { isComponentRoot, isLocked } from "../components-kit/instance";
+
+// Routes a selected element to the right panel:
+//   - Component root + locked → component prop form only.
+//   - Component root + unlocked → component prop form + raw element editor.
+//   - Plain element → raw element editor.
+function SelectedElementPanel({ node }: { node: ElementNode }) {
+  const isComponent = isComponentRoot(node);
+  const locked = isComponent && isLocked(node);
+  return (
+    <div className="space-y-4">
+      {isComponent && <ComponentProps node={node} />}
+      {!locked && <ElementProps node={node} />}
+    </div>
+  );
+}
 
 function ElementProps({ node }: { node: ElementNode }) {
   const {
@@ -302,7 +319,10 @@ export function RightSidebar({ width }: { width: number }) {
           </div>
         )}
         {selectedNode && isElement(selectedNode) && (
-          <ElementProps key={selectedNode.id} node={selectedNode} />
+          <SelectedElementPanel
+            key={selectedNode.id}
+            node={selectedNode}
+          />
         )}
         {selectedNode && selectedNode.kind === "text" && (
           <div className="text-xs space-y-2">

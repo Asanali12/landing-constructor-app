@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useEditor, type Viewport } from "../store";
 import type { EditorDocument } from "../types";
 import {
@@ -10,10 +10,11 @@ import {
 import { serializeDocument } from "../serialize";
 import { serializeMerged } from "../merge";
 import { annotateAndCollect, serializeEventsScript } from "../events-runtime";
+import { serializeComponentRuntimeScript } from "../../host-runtime/component-runtime";
+import { EventPresetsModal } from "./EventPresetsModal";
 import { SNAPSHOT_BOOKMARKLET, SNAPSHOT_SCRIPT } from "../snapshot-script";
 import { parseHtml } from "../parse";
 import { optimizeDocument, type OptimizationStats } from "../optimize";
-
 const SAMPLE_HTML = `<style>
   .hero {
     padding: 64px 32px;
@@ -84,6 +85,7 @@ export function TopBar() {
   const { state, loadHtml, setDocument, setViewportWidth } = useEditor();
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [presetsOpen, setPresetsOpen] = useState(false);
 
   const desktopCount = state.docs.desktop.children.length;
   const mobileCount = state.docs.mobile.children.length;
@@ -127,9 +129,17 @@ export function TopBar() {
         <button
           type="button"
           onClick={() => setExportOpen(true)}
-          className={btnPrimary}
+          className={btnSecondary}
         >
           Export HTML
+        </button>
+        <button
+          type="button"
+          onClick={() => setPresetsOpen(true)}
+          className={btnSecondary}
+          title="Manage reusable event presets"
+        >
+          Presets
         </button>
       </div>
 
@@ -148,6 +158,12 @@ export function TopBar() {
           onClose={() => setExportOpen(false)}
         />
       )}
+      {presetsOpen && (
+        <EventPresetsModal
+          onClose={() => setPresetsOpen(false)}
+          onChange={() => {}}
+        />
+      )}
     </header>
   );
 }
@@ -157,8 +173,10 @@ export function TopBar() {
 function buildActiveHtml(doc: EditorDocument): string {
   const { nodes, configs } = annotateAndCollect(doc.children);
   const html = serializeDocument({ ...doc, children: nodes }, { pretty: true });
-  const script = serializeEventsScript(configs);
-  return script ? html + "\n" + script + "\n" : html;
+  const eventsScript = serializeEventsScript(configs);
+  const componentScript = serializeComponentRuntimeScript();
+  const tail = [eventsScript, componentScript].filter(Boolean).join("\n");
+  return tail ? html + "\n" + tail + "\n" : html;
 }
 
 function ViewportPill({
