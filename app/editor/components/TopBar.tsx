@@ -173,7 +173,8 @@ export function TopBar() {
       )}
       {saveOpen && (
         <SaveModal
-          mergedHtml={serializeMerged(state.docs.desktop, state.docs.mobile)}
+          desktopDoc={state.docs.desktop}
+          mobileDoc={state.docs.mobile}
           onClose={() => setSaveOpen(false)}
         />
       )}
@@ -554,13 +555,59 @@ type SaveResult = {
   events_url: string;
 };
 
+// localStorage key. Bumping the suffix invalidates everyone's saved page
+// pointer — useful if the storage shape ever changes.
+const SAVED_PAGE_KEY = "lc-saved-page-v1";
+
+type SavedPagePointer = { id: string; slug: string; title: string };
+
+function readSavedPointer(): SavedPagePointer | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SAVED_PAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.slug === "string" &&
+      typeof parsed.id === "string"
+    ) {
+      return parsed as SavedPagePointer;
+    }
+  } catch {
+    // corrupted or unavailable — fall through to null
+  }
+  return null;
+}
+
+function writeSavedPointer(pointer: SavedPagePointer | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (pointer) {
+      window.localStorage.setItem(SAVED_PAGE_KEY, JSON.stringify(pointer));
+    } else {
+      window.localStorage.removeItem(SAVED_PAGE_KEY);
+    }
+  } catch {
+    // private mode / quota — saving in-memory still works for this session
+  }
+}
+
 function SaveModal({
-  mergedHtml,
+  desktopDoc,
+  mobileDoc,
   onClose,
 }: {
-  mergedHtml: string;
+  desktopDoc: EditorDocument;
+  mobileDoc: EditorDocument;
   onClose: () => void;
 }) {
+  // Loaded from localStorage on mount. When non-null the modal saves over
+  // the existing page (PUT). When null the modal creates a new one (POST).
+  // Resolved in an effect so SSR and the first client render stay in sync.
+  const [pointer, setPointer] = useState<SavedPagePointer | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [saving, setSaving] = useState(false);
@@ -568,11 +615,30 @@ function SaveModal({
   const [result, setResult] = useState<SaveResult | null>(null);
   const [copied, setCopied] = useState(false);
 
+  useEffect(() => {
+    const found = readSavedPointer();
+    setPointer(found);
+    if (found) setTitle(found.title);
+    setHydrated(true);
+  }, []);
+
   // Pull NEXT_PUBLIC_* at module read time. Process.env on the client side
   // is statically inlined by Next at build, so missing values surface as
   // undefined here — show a friendly hint instead of a 404 from the browser.
   const backendUrl = process.env.NEXT_PUBLIC_LC_BACKEND_URL;
   const writeToken = process.env.NEXT_PUBLIC_LC_BACKEND_TOKEN;
+
+  const buildPayload = (): { html: string; events: EventConfig[] } => {
+    // Optimize before serializing so the saved HTML matches what the user
+    // would see if they re-imported their own export. Imports already run
+    // optimizeDocument; hand-edited or sample-loaded docs may not have, so
+    // run it here unconditionally — it's idempotent on already-clean docs.
+    const optimizedDesktop = optimizeDocument(desktopDoc).doc;
+    const optimizedMobile = optimizeDocument(mobileDoc).doc;
+    const html = serializeMerged(optimizedDesktop, optimizedMobile);
+    const events = extractEventsFromHtml(html);
+    return { html, events };
+  };
 
   const onSave = async () => {
     setError(null);
@@ -588,37 +654,70 @@ function SaveModal({
     }
     setSaving(true);
     try {
-      const events = extractEventsFromHtml(mergedHtml);
+      const { html, events } = buildPayload();
+      const base = backendUrl.replace(/\/$/, "");
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
       };
       if (writeToken) headers.Authorization = `Bearer ${writeToken}`;
-      const res = await fetch(
-        `${backendUrl.replace(/\/$/, "")}/api/lc-pages/`,
-        {
+
+      let res: Response;
+      let usedFallback = false;
+
+      if (pointer) {
+        // Update existing page in place. PUT preserves the slug.
+        res = await fetch(
+          `${base}/api/lc-pages/${encodeURIComponent(pointer.slug)}/`,
+          {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({ title: title.trim(), html, events }),
+          }
+        );
+        // Backend may have lost the row (db reset, manual delete). Drop the
+        // stale pointer and create a fresh page so the save still succeeds.
+        if (res.status === 404) {
+          writeSavedPointer(null);
+          setPointer(null);
+          usedFallback = true;
+        }
+      }
+
+      if (!pointer || usedFallback) {
+        res = await fetch(`${base}/api/lc-pages/`, {
           method: "POST",
           headers,
           body: JSON.stringify({
             title: title.trim(),
-            html: mergedHtml,
+            html,
             events,
             ...(slug.trim() ? { slug: slug.trim() } : {}),
           }),
-        }
-      );
-      if (!res.ok) {
-        const detail = await res.text().catch(() => "");
+        });
+      }
+
+      if (!res!.ok) {
+        const detail = await res!.text().catch(() => "");
         throw new Error(
-          `Backend returned ${res.status}: ${detail || res.statusText}`
+          `Backend returned ${res!.status}: ${detail || res!.statusText}`
         );
       }
-      const data = (await res.json()) as SaveResult;
+      const data = (await res!.json()) as SaveResult;
+      writeSavedPointer({ id: data.id, slug: data.slug, title: data.title });
+      setPointer({ id: data.id, slug: data.slug, title: data.title });
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
+  };
+
+  const onResetSavedPointer = () => {
+    writeSavedPointer(null);
+    setPointer(null);
+    setSlug("");
+    setError(null);
   };
 
   if (result) {
@@ -681,8 +780,27 @@ function SaveModal({
   }
 
   return (
-    <Modal onClose={onClose} title="Save to backend">
+    <Modal
+      onClose={onClose}
+      title={pointer ? `Update “${pointer.title}”` : "Save to backend"}
+    >
       <div className="text-xs space-y-3">
+        {pointer && hydrated && (
+          <div className="p-2 rounded border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200">
+            Saving over slug{" "}
+            <code className="px-1 rounded bg-white/60 dark:bg-black/30">
+              {pointer.slug}
+            </code>
+            .{" "}
+            <button
+              type="button"
+              onClick={onResetSavedPointer}
+              className="underline hover:text-blue-900 dark:hover:text-blue-100"
+            >
+              Save as new instead
+            </button>
+          </div>
+        )}
         <div className="space-y-1">
           <label className="text-zinc-500">Title</label>
           <input
@@ -693,22 +811,29 @@ function SaveModal({
             className="w-full px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 focus:outline-none focus:border-blue-400"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-zinc-500">
-            Slug{" "}
-            <span className="text-zinc-400">
-              (optional — auto-generated when blank)
-            </span>
-          </label>
-          <input
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="pricing-v3"
-            className="w-full px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 font-mono focus:outline-none focus:border-blue-400"
-          />
-        </div>
+        {!pointer && (
+          <div className="space-y-1">
+            <label className="text-zinc-500">
+              Slug{" "}
+              <span className="text-zinc-400">
+                (optional — auto-generated when blank)
+              </span>
+            </label>
+            <input
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="pricing-v3"
+              className="w-full px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 font-mono focus:outline-none focus:border-blue-400"
+            />
+          </div>
+        )}
         <p className="text-zinc-500">
-          Saves merged HTML (desktop + mobile) plus the events config to{" "}
+          Optimizes both viewports (drops empty elements, dedupes
+          <code className="mx-1 px-1 rounded bg-zinc-100 dark:bg-zinc-800">
+            &lt;style&gt;
+          </code>
+          blocks, strips framework attributes), then ships merged HTML +
+          events to{" "}
           <code className="px-1 rounded bg-zinc-100 dark:bg-zinc-800">
             {backendUrl ?? "(NEXT_PUBLIC_LC_BACKEND_URL unset)"}
           </code>
@@ -730,7 +855,7 @@ function SaveModal({
           disabled={saving || !title.trim()}
           onClick={onSave}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? "Saving…" : pointer ? "Update" : "Save"}
         </button>
       </div>
     </Modal>
