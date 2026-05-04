@@ -19,9 +19,11 @@ const btnSecondary =
 
 // Common event triggers for the preset's event dropdown. We don't tie this
 // to a specific tag — presets are tag-agnostic and applied wherever the user
-// chooses.
+// chooses. `view` is a synthesized lifecycle trigger (fires once when the
+// element first scrolls into view) — same as in events-catalog.ts.
 const EVENT_OPTIONS = [
   "click",
+  "view",
   "dblclick",
   "mouseenter",
   "mouseleave",
