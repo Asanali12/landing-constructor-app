@@ -103,4 +103,66 @@ export function schemaFor(node: ElementNode): PropSchema[] | null {
   return def ? def.props : null;
 }
 
+// ─── Swiper-specific helpers ──────────────────────────────────────────
+//
+// The swiper component's slide count is editable from the right sidebar.
+// These helpers make it easy to walk the swiper's DOM to find the track,
+// list slides, and figure out the next slide-N number to mint when the
+// user clicks "+ Add slide".
+//
+// They're swiper-specific (look for data-swiper-track / data-swiper-slide)
+// rather than a generic "repeatable group" abstraction — the latter would
+// be cleaner architecture but a much larger change. If accordion or
+// feature-grid ever need the same feature, factor up at that point.
+
+export function findSwiperTrack(swiperRoot: ElementNode): ElementNode | null {
+  // BFS for descendant carrying data-swiper-track. The track sits one or
+  // two levels below the root depending on whether the template wraps the
+  // track in an overflow:hidden div (the testimonial template does).
+  const stack: ElementNode[] = [swiperRoot];
+  while (stack.length > 0) {
+    const cur = stack.shift()!;
+    if ("data-swiper-track" in cur.attributes) return cur;
+    for (const c of cur.children) if (isElement(c)) stack.push(c);
+  }
+  return null;
+}
+
+export function getSwiperSlides(swiperRoot: ElementNode): ElementNode[] {
+  const track = findSwiperTrack(swiperRoot);
+  if (!track) return [];
+  return track.children
+    .filter(isElement)
+    .filter((c) => "data-swiper-slide" in c.attributes);
+}
+
+// Extract the slide-N prefix used inside this slide's data-prop-* attrs.
+// Returns null if no slide-N attribute exists (e.g. user renamed slots
+// while unlocked) — the caller then falls back to picking the next free
+// number across all slides.
+export function slideNumberOf(slide: ElementNode): number | null {
+  const stack: ElementNode[] = [slide];
+  while (stack.length > 0) {
+    const cur = stack.shift()!;
+    for (const value of Object.values(cur.attributes)) {
+      const match = /^slide-(\d+)-/.exec(value);
+      if (match) return parseInt(match[1], 10);
+    }
+    for (const c of cur.children) if (isElement(c)) stack.push(c);
+  }
+  return null;
+}
+
+// Highest slide-N referenced anywhere across the given slides. Used to
+// pick the next mintable slide number when adding a slide — robust to
+// gaps in numbering (e.g. slide-1, slide-3 → next is 4, not 3).
+export function maxSlideNumber(slides: ElementNode[]): number {
+  let max = 0;
+  for (const slide of slides) {
+    const n = slideNumberOf(slide);
+    if (n !== null && n > max) max = n;
+  }
+  return max;
+}
+
 export { bindingFor };

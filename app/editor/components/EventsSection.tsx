@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { eventsForTag } from "../events-catalog";
 import {
   applyPreset,
-  loadPresets,
   presetFromBinding,
-  savePresets,
+  usePresets,
   type EventPreset,
 } from "../event-presets";
 import { makeId } from "../id";
@@ -28,13 +27,14 @@ export function EventsSection({ node }: { node: ElementNode }) {
   const events = node.events ?? [];
   const eventOptions = eventsForTag(node.tag);
 
-  // Hydrate presets from localStorage on mount; re-read after the modal
-  // closes so newly-added presets show up in the dropdown immediately.
-  const [presets, setPresets] = useState<EventPreset[]>([]);
-  useEffect(() => {
-    setPresets(loadPresets());
-  }, []);
-  const refreshPresets = () => setPresets(loadPresets());
+  // Backend-synced preset library. The hook keeps localStorage in step as
+  // a cache + offline fallback. Cross-component updates flow through a
+  // CustomEvent so the modal and this section stay aligned without prop
+  // drilling.
+  const { presets, status, setPresets } = usePresets();
+  // Kept as a no-op for parity with the previous API — the hook now
+  // refreshes itself via the change-event subscription.
+  const refreshPresets = () => {};
 
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -81,9 +81,7 @@ export function EventsSection({ node }: { node: ElementNode }) {
   const saveAsPreset = (binding: EventBinding) => {
     const name = window.prompt("Preset name?", `on ${binding.event}`);
     if (!name) return;
-    const next = [...loadPresets(), presetFromBinding(binding, name.trim())];
-    savePresets(next);
-    setPresets(next);
+    setPresets([...presets, presetFromBinding(binding, name.trim())]);
   };
 
   return (

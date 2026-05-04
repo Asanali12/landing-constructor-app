@@ -54,39 +54,95 @@ const FEATURE_GRID: ComponentDef = {
   ],
 };
 
-// Carousel-style swiper. Three slides with prev/next arrows; the runtime
-// shifts the track by one slide-width on click and wraps cyclically. Slide
-// width is fixed (280px) so multiple slides can be visible when the swiper
-// is wider than one slide. To add/remove slides, unlock the component.
+// Team Slides–style swiper: 3 cards visible on desktop with a tall video
+// at the top of each card, then name + description underneath. Modeled
+// after the Framer template in importMarkup.html (search
+// data-framer-name="Team Slides"). The runtime in
+// app/host-runtime/component-runtime.ts still shifts the track by one
+// slide-width on click and wraps cyclically — same selectors as before
+// (data-swiper-track / -slide / -prev / -next).
+//
+// Per-slide media is a real <video controls> element. Default sources
+// point at Big Buck Bunny on Google's public CDN so the slot has
+// something to play before the user pastes their own URL. To add /
+// remove slides, unlock and copy a data-swiper-slide.
 const SWIPER: ComponentDef = {
   id: "swiper",
   label: "Swiper",
-  description: "Horizontal carousel with prev/next arrows and cyclical wrap.",
-  template: `<section data-component="swiper" data-locked="true" style="position: relative; overflow: hidden; width: 100%; max-width: 720px; margin: 24px auto; padding: 0 56px; box-sizing: border-box;">
-  <div data-swiper-track style="display: flex; gap: 16px; transition: transform 400ms cubic-bezier(.22,.61,.36,1); will-change: transform;">
-    <div data-swiper-slide style="flex: 0 0 280px; min-height: 200px; padding: 24px; background: #f4f4f5; border-radius: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
-      <h3 data-prop-text="slide-1-title" style="margin: 0; font-size: 18px; font-weight: 600;">Slide one</h3>
-      <p data-prop-text="slide-1-body" style="margin: 0; color: #52525b; font-size: 14px;">Description for the first slide.</p>
-    </div>
-    <div data-swiper-slide style="flex: 0 0 280px; min-height: 200px; padding: 24px; background: #f4f4f5; border-radius: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
-      <h3 data-prop-text="slide-2-title" style="margin: 0; font-size: 18px; font-weight: 600;">Slide two</h3>
-      <p data-prop-text="slide-2-body" style="margin: 0; color: #52525b; font-size: 14px;">Description for the second slide.</p>
-    </div>
-    <div data-swiper-slide style="flex: 0 0 280px; min-height: 200px; padding: 24px; background: #f4f4f5; border-radius: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;">
-      <h3 data-prop-text="slide-3-title" style="margin: 0; font-size: 18px; font-weight: 600;">Slide three</h3>
-      <p data-prop-text="slide-3-body" style="margin: 0; color: #52525b; font-size: 14px;">Description for the third slide.</p>
+  description:
+    "Three video cards with prev/next arrows and cyclical wrap. Modeled on Framer's Team Slides.",
+  template: `<section data-component="swiper" data-locked="true" style="position: relative; width: 100%; max-width: 1320px; margin: 24px auto; padding: 16px 56px; box-sizing: border-box;">
+  <div style="overflow: hidden;">
+    <div data-swiper-track style="display: flex; align-items: stretch; gap: 16px; transition: transform 400ms cubic-bezier(.22,.61,.36,1); will-change: transform;">
+      <div data-swiper-slide style="flex: 0 0 calc(33.3333% - 11px); display: flex; box-sizing: border-box;">
+        <div style="flex: 1; background: white; border-radius: 20px; padding: 20px; box-shadow: 0 6px 28px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); display: flex; flex-direction: column; gap: 20px; box-sizing: border-box;">
+          <div style="aspect-ratio: 4 / 5; border-radius: 14px; overflow: hidden; background: #18181b;">
+            <video data-prop-src="slide-1-video" controls preload="metadata" playsinline src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" style="width: 100%; height: 100%; object-fit: cover; display: block; background: #18181b;"></video>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px; flex: 1;">
+            <h3 data-prop-text="slide-1-title" style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #18181b; line-height: 1.25;">Business man &ndash; Mike</h3>
+            <div style="height: 1px; background: rgba(0,0,0,0.08); border-radius: 1px;"></div>
+            <p data-prop-text="slide-1-body" style="margin: 0; color: #555; font-size: 16px; line-height: 1.55;">&ldquo;It&rsquo;s saving me about 10 hours a week and I&rsquo;ve already seen my response rates jump.&rdquo;</p>
+          </div>
+        </div>
+      </div>
+      <div data-swiper-slide style="flex: 0 0 calc(33.3333% - 11px); display: flex; box-sizing: border-box;">
+        <div style="flex: 1; background: white; border-radius: 20px; padding: 20px; box-shadow: 0 6px 28px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); display: flex; flex-direction: column; gap: 20px; box-sizing: border-box;">
+          <div style="aspect-ratio: 4 / 5; border-radius: 14px; overflow: hidden; background: #18181b;">
+            <video data-prop-src="slide-2-video" controls preload="metadata" playsinline src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4" style="width: 100%; height: 100%; object-fit: cover; display: block; background: #18181b;"></video>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px; flex: 1;">
+            <h3 data-prop-text="slide-2-title" style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #18181b; line-height: 1.25;">Ex-office worker &ndash; Ella</h3>
+            <div style="height: 1px; background: rgba(0,0,0,0.08); border-radius: 1px;"></div>
+            <p data-prop-text="slide-2-body" style="margin: 0; color: #555; font-size: 16px; line-height: 1.55;">&ldquo;Now I&rsquo;m working for myself, I set my own hours, and I&rsquo;m making more than I did at my desk job.&rdquo;</p>
+          </div>
+        </div>
+      </div>
+      <div data-swiper-slide style="flex: 0 0 calc(33.3333% - 11px); display: flex; box-sizing: border-box;">
+        <div style="flex: 1; background: white; border-radius: 20px; padding: 20px; box-shadow: 0 6px 28px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); display: flex; flex-direction: column; gap: 20px; box-sizing: border-box;">
+          <div style="aspect-ratio: 4 / 5; border-radius: 14px; overflow: hidden; background: #18181b;">
+            <video data-prop-src="slide-3-video" controls preload="metadata" playsinline src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" style="width: 100%; height: 100%; object-fit: cover; display: block; background: #18181b;"></video>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 14px; flex: 1;">
+            <h3 data-prop-text="slide-3-title" style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #18181b; line-height: 1.25;">Ex-uber driver &ndash; Jamie</h3>
+            <div style="height: 1px; background: rgba(0,0,0,0.08); border-radius: 1px;"></div>
+            <p data-prop-text="slide-3-body" style="margin: 0; color: #555; font-size: 16px; line-height: 1.55;">&ldquo;...for the first time, I&rsquo;m actually excited about what I do.&rdquo;</p>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-  <button data-swiper-prev type="button" aria-label="Previous slide" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; background: white; border: 1px solid #e4e4e7; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; font-size: 20px; line-height: 1; color: #18181b;">‹</button>
-  <button data-swiper-next type="button" aria-label="Next slide" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; background: white; border: 1px solid #e4e4e7; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; font-size: 20px; line-height: 1; color: #18181b;">›</button>
+  <button data-swiper-prev type="button" aria-label="Previous slide" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; background: white; border: 1px solid #e4e4e7; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; font-size: 20px; line-height: 1; color: #18181b; z-index: 2;">&lsaquo;</button>
+  <button data-swiper-next type="button" aria-label="Next slide" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; background: white; border: 1px solid #e4e4e7; box-shadow: 0 2px 8px rgba(0,0,0,0.08); cursor: pointer; font-size: 20px; line-height: 1; color: #18181b; z-index: 2;">&rsaquo;</button>
 </section>`,
   props: [
-    { name: "slide-1-title", label: "Slide 1 title", type: "text" },
-    { name: "slide-1-body", label: "Slide 1 body", type: "longText" },
-    { name: "slide-2-title", label: "Slide 2 title", type: "text" },
-    { name: "slide-2-body", label: "Slide 2 body", type: "longText" },
-    { name: "slide-3-title", label: "Slide 3 title", type: "text" },
-    { name: "slide-3-body", label: "Slide 3 body", type: "longText" },
+    // type: "url" with binding "src" override — the prop is a video URL,
+    // so the sidebar should label it as such, but the renderer needs to
+    // write to <video src=…>, not <a href=…>.
+    { name: "slide-1-video", label: "Slide 1 video URL", type: "url", binding: "src" },
+    { name: "slide-1-title", label: "Slide 1 name", type: "text" },
+    { name: "slide-1-body", label: "Slide 1 description", type: "longText" },
+    { name: "slide-2-video", label: "Slide 2 video URL", type: "url", binding: "src" },
+    { name: "slide-2-title", label: "Slide 2 name", type: "text" },
+    { name: "slide-2-body", label: "Slide 2 description", type: "longText" },
+    { name: "slide-3-video", label: "Slide 3 video URL", type: "url", binding: "src" },
+    { name: "slide-3-title", label: "Slide 3 name", type: "text" },
+    { name: "slide-3-body", label: "Slide 3 description", type: "longText" },
+  ],
+};
+
+// Standalone <video controls> wrapped in a rounded container. Doesn't
+// participate in the swiper's runtime — drop it anywhere you want a
+// single autoplay-friendly video player.
+const VIDEO: ComponentDef = {
+  id: "video",
+  label: "Video",
+  description: "Single video player with native controls.",
+  template: `<div data-component="video" data-locked="true" style="aspect-ratio: 16 / 9; max-width: 720px; width: 100%; margin: 24px auto; border-radius: 16px; overflow: hidden; background: #18181b;">
+  <video data-prop-src="src" controls preload="metadata" playsinline src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" style="width: 100%; height: 100%; object-fit: cover; display: block;"></video>
+</div>`,
+  props: [
+    { name: "src", label: "Video URL", type: "url", binding: "src" },
   ],
 };
 
@@ -114,43 +170,46 @@ const SIDEBAR: ComponentDef = {
 };
 
 // Vertical accordion with three items. Runtime animates each item's
-// max-height between 0 and the panel's scrollHeight on click. To add
-// items, unlock and copy an existing data-accordion-item.
+// max-height between 0 and the panel's scrollHeight on click, and
+// rotates the [data-accordion-icon] by 180deg via inline transform.
+// Visual style: no per-item box — items are separated by 1px dividers,
+// with a rounded gray-square holder for the chevron on the right. To
+// add items, unlock and copy an existing data-accordion-item.
 const ACCORDION: ComponentDef = {
   id: "accordion",
   label: "Accordion",
-  description: "Stack of expandable items with a smooth open/close transition.",
-  template: `<div data-component="accordion" data-locked="true" style="display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 600px; margin: 16px auto;">
-  <div data-accordion-item style="border: 1px solid #e4e4e7; border-radius: 8px; overflow: hidden; background: white;">
-    <button data-accordion-trigger type="button" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 16px; background: white; border: 0; cursor: pointer; font-size: 14px; font-weight: 500; text-align: left; color: #18181b;">
-      <span data-prop-text="item-1-title">Question one</span>
-      <span data-accordion-icon style="display: inline-block; transition: transform 220ms ease; font-size: 12px; color: #71717a;">▼</span>
+  description: "Stack of expandable items separated by thin dividers.",
+  template: `<div data-component="accordion" data-locked="true" style="display: flex; flex-direction: column; width: 100%; max-width: 800px; margin: 16px auto;">
+  <div data-accordion-item style="border-bottom: 1px solid rgba(0,0,0,0.1);">
+    <button data-accordion-trigger type="button" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 20px 4px; background: transparent; border: 0; cursor: pointer; font-size: 18px; font-weight: 600; text-align: left; color: #18181b; gap: 16px;">
+      <span data-prop-text="item-1-title">What Jobescape is?</span>
+      <span data-accordion-icon style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #f4f4f5; border-radius: 8px; flex-shrink: 0; transition: transform 220ms ease; font-size: 14px; color: #18181b;">▾</span>
     </button>
     <div data-accordion-panel style="overflow: hidden; max-height: 0; transition: max-height 320ms ease;">
-      <div style="padding: 0 16px 16px;">
-        <p data-prop-text="item-1-body" style="margin: 0; color: #52525b; font-size: 14px; line-height: 1.5;">Answer to the first question.</p>
+      <div style="padding: 0 4px 20px;">
+        <p data-prop-text="item-1-body" style="margin: 0; color: #555; font-size: 15px; line-height: 1.6;">Jobescape is your path to freedom through freelancing and AI. Learn at your own pace, work from anywhere, and gain in-demand skills. Build a career that matches your goals and values. We offer flexibility, growth, and the chance to turn work into true fulfillment.</p>
       </div>
     </div>
   </div>
-  <div data-accordion-item style="border: 1px solid #e4e4e7; border-radius: 8px; overflow: hidden; background: white;">
-    <button data-accordion-trigger type="button" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 16px; background: white; border: 0; cursor: pointer; font-size: 14px; font-weight: 500; text-align: left; color: #18181b;">
-      <span data-prop-text="item-2-title">Question two</span>
-      <span data-accordion-icon style="display: inline-block; transition: transform 220ms ease; font-size: 12px; color: #71717a;">▼</span>
+  <div data-accordion-item style="border-bottom: 1px solid rgba(0,0,0,0.1);">
+    <button data-accordion-trigger type="button" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 20px 4px; background: transparent; border: 0; cursor: pointer; font-size: 18px; font-weight: 600; text-align: left; color: #18181b; gap: 16px;">
+      <span data-prop-text="item-2-title">How does it work?</span>
+      <span data-accordion-icon style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #f4f4f5; border-radius: 8px; flex-shrink: 0; transition: transform 220ms ease; font-size: 14px; color: #18181b;">▾</span>
     </button>
     <div data-accordion-panel style="overflow: hidden; max-height: 0; transition: max-height 320ms ease;">
-      <div style="padding: 0 16px 16px;">
-        <p data-prop-text="item-2-body" style="margin: 0; color: #52525b; font-size: 14px; line-height: 1.5;">Answer to the second question.</p>
+      <div style="padding: 0 4px 20px;">
+        <p data-prop-text="item-2-body" style="margin: 0; color: #555; font-size: 15px; line-height: 1.6;">A short quiz tailors the experience to your goals. You learn the AI tools that real freelancers are using, then apply them to live briefs the platform matches you against — earning while you learn.</p>
       </div>
     </div>
   </div>
-  <div data-accordion-item style="border: 1px solid #e4e4e7; border-radius: 8px; overflow: hidden; background: white;">
-    <button data-accordion-trigger type="button" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 16px; background: white; border: 0; cursor: pointer; font-size: 14px; font-weight: 500; text-align: left; color: #18181b;">
-      <span data-prop-text="item-3-title">Question three</span>
-      <span data-accordion-icon style="display: inline-block; transition: transform 220ms ease; font-size: 12px; color: #71717a;">▼</span>
+  <div data-accordion-item style="border-bottom: 1px solid rgba(0,0,0,0.1);">
+    <button data-accordion-trigger type="button" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 20px 4px; background: transparent; border: 0; cursor: pointer; font-size: 18px; font-weight: 600; text-align: left; color: #18181b; gap: 16px;">
+      <span data-prop-text="item-3-title">Who is it for?</span>
+      <span data-accordion-icon style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #f4f4f5; border-radius: 8px; flex-shrink: 0; transition: transform 220ms ease; font-size: 14px; color: #18181b;">▾</span>
     </button>
     <div data-accordion-panel style="overflow: hidden; max-height: 0; transition: max-height 320ms ease;">
-      <div style="padding: 0 16px 16px;">
-        <p data-prop-text="item-3-body" style="margin: 0; color: #52525b; font-size: 14px; line-height: 1.5;">Answer to the third question.</p>
+      <div style="padding: 0 4px 20px;">
+        <p data-prop-text="item-3-body" style="margin: 0; color: #555; font-size: 15px; line-height: 1.6;">Anyone trading desk-job hours for something they own. No prior tech background required — the program is designed to take you from "I&rsquo;ve heard of AI" to landing your first paid project.</p>
       </div>
     </div>
   </div>
@@ -206,6 +265,7 @@ export const COMPONENT_REGISTRY: ComponentDef[] = [
   HERO,
   FEATURE_GRID,
   SWIPER,
+  VIDEO,
   SIDEBAR,
   ACCORDION,
   BLUE_CARD,

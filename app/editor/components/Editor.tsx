@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { EditorProvider } from "../store";
+import { AutoLoader } from "./AutoLoader";
 import { LeftSidebar } from "./LeftSidebar";
 import { Preview } from "./Preview";
 import { ResizeHandle } from "./ResizeHandle";
@@ -13,12 +14,17 @@ const RIGHT_DEFAULT_WIDTH = 320;
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 600;
 
-export function Editor() {
+// `slug` is set by /edit/[slug]/page.tsx — when present, AutoLoader
+// fetches the saved editor_state on mount and replaces both viewports.
+// On the bare `/` route slug is undefined and the editor opens with the
+// default empty docs.
+export function Editor({ slug }: { slug?: string }) {
   const [leftWidth, setLeftWidth] = useState(LEFT_DEFAULT_WIDTH);
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT_WIDTH);
 
   return (
     <EditorProvider>
+      {slug && <AutoLoader slug={slug} />}
       {/* Pin the whole editor to dynamic viewport height and clip its overflow.
           Without this, a tall iframe in Preview makes the body grow past 100vh
           and the page itself scrolls — taking the sidebars with it. */}

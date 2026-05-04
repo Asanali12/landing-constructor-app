@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useEditor, type Viewport } from "../store";
 import type { EditorDocument } from "../types";
@@ -19,6 +20,11 @@ import { EventPresetsModal } from "./EventPresetsModal";
 import { SNAPSHOT_BOOKMARKLET, SNAPSHOT_SCRIPT } from "../snapshot-script";
 import { parseHtml } from "../parse";
 import { optimizeDocument, type OptimizationStats } from "../optimize";
+import {
+  readSavedPointer,
+  writeSavedPointer,
+  type SavedPagePointer,
+} from "../saved-pointer";
 const SAMPLE_HTML = `<style>
   .hero {
     padding: 64px 32px;
@@ -573,45 +579,6 @@ type SaveResult = {
   events_url: string;
 };
 
-// localStorage key. Bumping the suffix invalidates everyone's saved page
-// pointer — useful if the storage shape ever changes.
-const SAVED_PAGE_KEY = "lc-saved-page-v1";
-
-type SavedPagePointer = { id: string; slug: string; title: string };
-
-function readSavedPointer(): SavedPagePointer | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(SAVED_PAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof parsed.slug === "string" &&
-      typeof parsed.id === "string"
-    ) {
-      return parsed as SavedPagePointer;
-    }
-  } catch {
-    // corrupted or unavailable — fall through to null
-  }
-  return null;
-}
-
-function writeSavedPointer(pointer: SavedPagePointer | null): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (pointer) {
-      window.localStorage.setItem(SAVED_PAGE_KEY, JSON.stringify(pointer));
-    } else {
-      window.localStorage.removeItem(SAVED_PAGE_KEY);
-    }
-  } catch {
-    // private mode / quota — saving in-memory still works for this session
-  }
-}
-
 function SaveModal({
   desktopDoc,
   mobileDoc,
@@ -632,6 +599,9 @@ function SaveModal({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SaveResult | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const found = readSavedPointer();
@@ -741,6 +711,13 @@ function SaveModal({
       writeSavedPointer({ id: data.id, slug: data.slug, title: data.title });
       setPointer({ id: data.id, slug: data.slug, title: data.title });
       setResult(data);
+      // Reflect the saved page in the URL so the user can bookmark it
+      // and reload directly. router.replace (not push) so back-button
+      // doesn't return to the pre-save URL.
+      const targetPath = `/edit/${encodeURIComponent(data.slug)}`;
+      if (pathname !== targetPath) {
+        router.replace(targetPath);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -917,6 +894,8 @@ function LoadModal({
   onClose: () => void;
   onLoaded: (desktop: EditorDocument, mobile: EditorDocument) => void;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [items, setItems] = useState<SavedPageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
@@ -982,6 +961,12 @@ function LoadModal({
       // Same pointer the SaveModal reads so subsequent saves overwrite the
       // page we just loaded.
       writeSavedPointer({ id: row.id, slug: row.slug, title: row.title });
+      // Bookmarkable URL for the loaded page. Use replace so the back
+      // button doesn't return to the modal-open state.
+      const targetPath = `/edit/${encodeURIComponent(row.slug)}`;
+      if (pathname !== targetPath) {
+        router.replace(targetPath);
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

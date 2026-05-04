@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import {
-  loadPresets,
-  savePresets,
+  usePresets,
   type EventPreset,
+  type PresetsSyncStatus,
 } from "../event-presets";
 import { makeId } from "../id";
 import { ActionList } from "./ActionEditor";
@@ -44,18 +44,18 @@ export function EventPresetsModal({
   // presets…" entry in the binding dropdown to surface the active row.
   initialPreset?: EventPreset;
   onClose: () => void;
-  // Notifies the parent (EventsSection) so it can re-read presets from
-  // localStorage. Called on every save (add / edit / delete).
+  // Kept as a no-op-friendly callback for parity with the previous API.
+  // The hook now syncs via a global change-event so the parent doesn't
+  // need to re-read on close.
   onChange: () => void;
 }) {
-  const [presets, setPresets] = useState<EventPreset[]>(loadPresets);
+  const { presets, status, setPresets } = usePresets();
   const [editing, setEditing] = useState<EventPreset | null>(
     initialPreset ?? null
   );
 
   const persist = (next: EventPreset[]) => {
     setPresets(next);
-    savePresets(next);
     onChange();
   };
 
@@ -90,7 +90,10 @@ export function EventPresetsModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200 dark:border-zinc-800">
-          <h2 className="font-semibold text-sm">Event presets</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-sm">Event presets</h2>
+            <SyncBadge status={status} />
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -157,6 +160,36 @@ export function EventPresetsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+// Tiny inline badge surfacing the backend-sync state of the preset
+// library. Presets are global across users / pages, so the user wants
+// immediate confirmation that their change made it to the server.
+function SyncBadge({ status }: { status: PresetsSyncStatus }) {
+  let dotCls = "bg-zinc-400";
+  let label = "Loading…";
+  if (status.kind === "synced") {
+    dotCls = "bg-emerald-500";
+    label = "Saved";
+  } else if (status.kind === "saving") {
+    dotCls = "bg-blue-500 animate-pulse";
+    label = "Saving…";
+  } else if (status.kind === "error") {
+    dotCls = "bg-red-500";
+    label = status.message;
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 max-w-[280px]"
+      title={status.kind === "error" ? status.message : label}
+    >
+      <span
+        className={`inline-block w-2 h-2 rounded-full ${dotCls}`}
+        aria-hidden
+      />
+      <span className="truncate">{label}</span>
+    </span>
   );
 }
 
