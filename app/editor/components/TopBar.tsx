@@ -9,7 +9,11 @@ import {
 } from "../constants";
 import { serializeDocument } from "../serialize";
 import { serializeMerged } from "../merge";
-import { annotateAndCollect, serializeEventsScript } from "../events-runtime";
+import {
+  annotateAndCollect,
+  serializeEventsScript,
+  type EventConfig,
+} from "../events-runtime";
 import { serializeComponentRuntimeScript } from "../../host-runtime/component-runtime";
 import { EventPresetsModal } from "./EventPresetsModal";
 import { SNAPSHOT_BOOKMARKLET, SNAPSHOT_SCRIPT } from "../snapshot-script";
@@ -85,6 +89,7 @@ export function TopBar() {
   const { state, loadHtml, setDocument, setViewportWidth } = useEditor();
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
 
   const desktopCount = state.docs.desktop.children.length;
@@ -135,6 +140,14 @@ export function TopBar() {
         </button>
         <button
           type="button"
+          onClick={() => setSaveOpen(true)}
+          className={btnPrimary}
+          title="Save to lc-backend so the funnel can render this page"
+        >
+          Save
+        </button>
+        <button
+          type="button"
           onClick={() => setPresetsOpen(true)}
           className={btnSecondary}
           title="Manage reusable event presets"
@@ -156,6 +169,12 @@ export function TopBar() {
           mergedHtml={serializeMerged(state.docs.desktop, state.docs.mobile)}
           activeViewport={state.activeViewport}
           onClose={() => setExportOpen(false)}
+        />
+      )}
+      {saveOpen && (
+        <SaveModal
+          mergedHtml={serializeMerged(state.docs.desktop, state.docs.mobile)}
+          onClose={() => setSaveOpen(false)}
         />
       )}
       {presetsOpen && (
@@ -525,6 +544,214 @@ function ExportModal({
       </div>
     </Modal>
   );
+}
+
+type SaveResult = {
+  id: string;
+  slug: string;
+  title: string;
+  html_url: string;
+  events_url: string;
+};
+
+function SaveModal({
+  mergedHtml,
+  onClose,
+}: {
+  mergedHtml: string;
+  onClose: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [slug, setSlug] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<SaveResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Pull NEXT_PUBLIC_* at module read time. Process.env on the client side
+  // is statically inlined by Next at build, so missing values surface as
+  // undefined here — show a friendly hint instead of a 404 from the browser.
+  const backendUrl = process.env.NEXT_PUBLIC_LC_BACKEND_URL;
+  const writeToken = process.env.NEXT_PUBLIC_LC_BACKEND_TOKEN;
+
+  const onSave = async () => {
+    setError(null);
+    if (!title.trim()) {
+      setError("Title is required.");
+      return;
+    }
+    if (!backendUrl) {
+      setError(
+        "NEXT_PUBLIC_LC_BACKEND_URL is not set — copy .env.example to .env.local and restart `npm run dev`."
+      );
+      return;
+    }
+    setSaving(true);
+    try {
+      const events = extractEventsFromHtml(mergedHtml);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (writeToken) headers.Authorization = `Bearer ${writeToken}`;
+      const res = await fetch(
+        `${backendUrl.replace(/\/$/, "")}/api/lc-pages/`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            title: title.trim(),
+            html: mergedHtml,
+            events,
+            ...(slug.trim() ? { slug: slug.trim() } : {}),
+          }),
+        }
+      );
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(
+          `Backend returned ${res.status}: ${detail || res.statusText}`
+        );
+      }
+      const data = (await res.json()) as SaveResult;
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <Modal onClose={onClose} title="Saved">
+        <div className="text-xs space-y-3">
+          <p className="text-zinc-600 dark:text-zinc-300">
+            Saved as <strong>{result.title}</strong> (slug{" "}
+            <code className="px-1 rounded bg-zinc-100 dark:bg-zinc-800">
+              {result.slug}
+            </code>
+            ). The funnel can now render it at{" "}
+            <code className="px-1 rounded bg-zinc-100 dark:bg-zinc-800">
+              /lc/{result.slug}
+            </code>
+            .
+          </p>
+          <div>
+            <div className="text-zinc-500 mb-1">Public HTML URL</div>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={result.html_url}
+                onFocus={(e) => e.target.select()}
+                className="flex-1 px-2 py-1 font-mono text-[11px] rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 focus:outline-none"
+              />
+              <button
+                type="button"
+                className={btnSecondary}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(result.html_url);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  } catch {
+                    /* clipboard may be blocked */
+                  }
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <a
+                href={result.html_url}
+                target="_blank"
+                rel="noreferrer"
+                className={btnSecondary}
+              >
+                Open
+              </a>
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button type="button" className={btnPrimary} onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal onClose={onClose} title="Save to backend">
+      <div className="text-xs space-y-3">
+        <div className="space-y-1">
+          <label className="text-zinc-500">Title</label>
+          <input
+            value={title}
+            autoFocus
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Pricing v3"
+            className="w-full px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 focus:outline-none focus:border-blue-400"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-zinc-500">
+            Slug{" "}
+            <span className="text-zinc-400">
+              (optional — auto-generated when blank)
+            </span>
+          </label>
+          <input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="pricing-v3"
+            className="w-full px-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 font-mono focus:outline-none focus:border-blue-400"
+          />
+        </div>
+        <p className="text-zinc-500">
+          Saves merged HTML (desktop + mobile) plus the events config to{" "}
+          <code className="px-1 rounded bg-zinc-100 dark:bg-zinc-800">
+            {backendUrl ?? "(NEXT_PUBLIC_LC_BACKEND_URL unset)"}
+          </code>
+          .
+        </p>
+        {error && (
+          <div className="p-2 rounded border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300">
+            {error}
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <button type="button" className={btnSecondary} onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={btnPrimary}
+          disabled={saving || !title.trim()}
+          onClick={onSave}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// Pull events config out of the inline <script>window.__lcEventsConfig=…</script>
+// that serializeMerged appends. Mirrors the funnel-side logic in
+// funnel/src/widgets/lc-page/api/get-lc-page.ts so the two sides agree on
+// canonical events shape regardless of who reads the HTML directly.
+function extractEventsFromHtml(html: string): EventConfig[] {
+  const cfgRegex =
+    /<script\b[^>]*>\s*window\.__lcEventsConfig\s*=\s*([\s\S]*?);\s*<\/script>/i;
+  const match = cfgRegex.exec(html);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    return Array.isArray(parsed) ? (parsed as EventConfig[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 function Modal({
