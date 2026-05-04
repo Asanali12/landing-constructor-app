@@ -1,4 +1,5 @@
 import type { ComponentDef } from "./types";
+import { findUserComponent } from "./user-registry";
 
 // Curated component templates. Each template:
 //   - has exactly one root element with data-component="<id>" and
@@ -212,5 +213,9 @@ export const COMPONENT_REGISTRY: ComponentDef[] = [
 ];
 
 export function findComponentDef(id: string): ComponentDef | undefined {
-  return COMPONENT_REGISTRY.find((c) => c.id === id);
+  // Built-ins first so a user can't shadow a built-in id by accident.
+  // user-registry only resolves on the client (returns [] under SSR).
+  const builtin = COMPONENT_REGISTRY.find((c) => c.id === id);
+  if (builtin) return builtin;
+  return findUserComponent(id);
 }
