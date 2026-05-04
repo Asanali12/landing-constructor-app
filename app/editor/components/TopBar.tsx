@@ -90,6 +90,7 @@ export function TopBar() {
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [loadOpen, setLoadOpen] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
 
   const desktopCount = state.docs.desktop.children.length;
@@ -140,6 +141,14 @@ export function TopBar() {
         </button>
         <button
           type="button"
+          onClick={() => setLoadOpen(true)}
+          className={btnSecondary}
+          title="Reopen a previously saved page from the backend"
+        >
+          Load
+        </button>
+        <button
+          type="button"
           onClick={() => setSaveOpen(true)}
           className={btnPrimary}
           title="Save to lc-backend so the funnel can render this page"
@@ -176,6 +185,15 @@ export function TopBar() {
           desktopDoc={state.docs.desktop}
           mobileDoc={state.docs.mobile}
           onClose={() => setSaveOpen(false)}
+        />
+      )}
+      {loadOpen && (
+        <LoadModal
+          onClose={() => setLoadOpen(false)}
+          onLoaded={(desktop, mobile) => {
+            setDocument(desktop, "desktop");
+            setDocument(mobile, "mobile");
+          }}
         />
       )}
       {presetsOpen && (
@@ -628,7 +646,11 @@ function SaveModal({
   const backendUrl = process.env.NEXT_PUBLIC_LC_BACKEND_URL;
   const writeToken = process.env.NEXT_PUBLIC_LC_BACKEND_TOKEN;
 
-  const buildPayload = (): { html: string; events: EventConfig[] } => {
+  const buildPayload = (): {
+    html: string;
+    events: EventConfig[];
+    editor_state: { desktop: EditorDocument; mobile: EditorDocument };
+  } => {
     // Optimize before serializing so the saved HTML matches what the user
     // would see if they re-imported their own export. Imports already run
     // optimizeDocument; hand-edited or sample-loaded docs may not have, so
@@ -637,7 +659,14 @@ function SaveModal({
     const optimizedMobile = optimizeDocument(mobileDoc).doc;
     const html = serializeMerged(optimizedDesktop, optimizedMobile);
     const events = extractEventsFromHtml(html);
-    return { html, events };
+    return {
+      html,
+      events,
+      // The editor_state blob lets the Load modal reopen this page later
+      // without round-tripping through merged HTML (which is lossy for
+      // editor metadata like attribute order, IDs, group memberships).
+      editor_state: { desktop: optimizedDesktop, mobile: optimizedMobile },
+    };
   };
 
   const onSave = async () => {
@@ -654,7 +683,7 @@ function SaveModal({
     }
     setSaving(true);
     try {
-      const { html, events } = buildPayload();
+      const { html, events, editor_state } = buildPayload();
       const base = backendUrl.replace(/\/$/, "");
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -671,7 +700,12 @@ function SaveModal({
           {
             method: "PUT",
             headers,
-            body: JSON.stringify({ title: title.trim(), html, events }),
+            body: JSON.stringify({
+              title: title.trim(),
+              html,
+              events,
+              editor_state,
+            }),
           }
         );
         // Backend may have lost the row (db reset, manual delete). Drop the
@@ -691,6 +725,7 @@ function SaveModal({
             title: title.trim(),
             html,
             events,
+            editor_state,
             ...(slug.trim() ? { slug: slug.trim() } : {}),
           }),
         });
@@ -856,6 +891,165 @@ function SaveModal({
           onClick={onSave}
         >
           {saving ? "Saving…" : pointer ? "Update" : "Save"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+type SavedPageRow = {
+  id: string;
+  slug: string;
+  title: string;
+  html_url: string;
+  events_url: string;
+  editor_state_url: string;
+  has_editor_state: boolean;
+  size_bytes: number;
+  created_at: string;
+  updated_at: string;
+};
+
+function LoadModal({
+  onClose,
+  onLoaded,
+}: {
+  onClose: () => void;
+  onLoaded: (desktop: EditorDocument, mobile: EditorDocument) => void;
+}) {
+  const [items, setItems] = useState<SavedPageRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
+
+  const backendUrl = process.env.NEXT_PUBLIC_LC_BACKEND_URL;
+
+  useEffect(() => {
+    if (!backendUrl) {
+      setError(
+        "NEXT_PUBLIC_LC_BACKEND_URL is not set — copy .env.example to .env.local and restart `npm run dev`."
+      );
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `${backendUrl.replace(/\/$/, "")}/api/lc-pages/`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) {
+          throw new Error(
+            `Backend returned ${res.status}: ${res.statusText || "(no body)"}`
+          );
+        }
+        const data = (await res.json()) as { items: SavedPageRow[] };
+        if (!cancelled) setItems(data.items);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [backendUrl]);
+
+  const onPick = async (row: SavedPageRow) => {
+    if (!row.has_editor_state) {
+      setError(
+        `"${row.title}" was saved before editor_state existed — re-save it from the editor first.`
+      );
+      return;
+    }
+    setError(null);
+    setLoadingSlug(row.slug);
+    try {
+      const res = await fetch(row.editor_state_url, { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(
+          `Couldn't fetch editor_state (${res.status} ${res.statusText}).`
+        );
+      }
+      const state = (await res.json()) as {
+        desktop?: EditorDocument;
+        mobile?: EditorDocument;
+      };
+      if (!state.desktop || !state.mobile) {
+        throw new Error("Saved editor_state is missing desktop or mobile.");
+      }
+      onLoaded(state.desktop, state.mobile);
+      // Same pointer the SaveModal reads so subsequent saves overwrite the
+      // page we just loaded.
+      writeSavedPointer({ id: row.id, slug: row.slug, title: row.title });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingSlug(null);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} title="Load a saved page">
+      <div className="text-xs space-y-3">
+        {error && (
+          <div className="p-2 rounded border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300">
+            {error}
+          </div>
+        )}
+        {!items && !error && (
+          <div className="text-zinc-500">Loading list…</div>
+        )}
+        {items && items.length === 0 && (
+          <div className="text-zinc-500">
+            No saved pages yet. Build one and click Save.
+          </div>
+        )}
+        {items && items.length > 0 && (
+          <ul className="divide-y divide-zinc-200 dark:divide-zinc-800 rounded border border-zinc-200 dark:border-zinc-800 max-h-80 overflow-auto">
+            {items.map((row) => {
+              const disabled =
+                !row.has_editor_state || loadingSlug === row.slug;
+              return (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onPick(row)}
+                    className="w-full text-left px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-3"
+                    title={
+                      row.has_editor_state
+                        ? "Replace current editor docs with this saved page"
+                        : "This page has no editor_state — re-save from the editor to enable Load"
+                    }
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{row.title}</div>
+                      <div className="text-zinc-500 font-mono">
+                        {row.slug}
+                        {!row.has_editor_state && (
+                          <span className="ml-2 text-amber-600 dark:text-amber-400">
+                            (no editor state)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-zinc-400 whitespace-nowrap">
+                      {loadingSlug === row.slug
+                        ? "Loading…"
+                        : new Date(row.updated_at).toLocaleString()}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <button type="button" className={btnSecondary} onClick={onClose}>
+          Close
         </button>
       </div>
     </Modal>
